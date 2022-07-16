@@ -1,0 +1,206 @@
+diff --git a/include/SDL_rect.h b/include/SDL_rect.h
+index 6c641c581..c278eeca6 100644
+--- a/include/SDL_rect.h
++++ b/include/SDL_rect.h
+@@ -75,10 +75,9 @@ typedef struct SDL_FPoint
+  * \sa SDL_UnionRect
+  * \sa SDL_EnclosePoints
+  */
+-typedef struct SDL_Rect
+-{
+-    int x, y;
+-    int w, h;
++typedef struct SDL_Rect {
++	Sint16 x, y;
++	Uint16 w, h;
+ } SDL_Rect;
+ 
+ 
+diff --git a/include/SDL_surface.h b/include/SDL_surface.h
+index 838de654e..4fdfaccfd 100644
+--- a/include/SDL_surface.h
++++ b/include/SDL_surface.h
+@@ -69,31 +69,32 @@ typedef struct SDL_BlitMap SDL_BlitMap;  /* this is an opaque type. */
+  * \note  This structure should be treated as read-only, except for \c pixels,
+  *        which, if not NULL, contains the raw pixel data for the surface.
+  */
+-typedef struct SDL_Surface
+-{
+-    Uint32 flags;               /**< Read-only */
+-    SDL_PixelFormat *format;    /**< Read-only */
+-    int w, h;                   /**< Read-only */
+-    int pitch;                  /**< Read-only */
+-    void *pixels;               /**< Read-write */
++typedef struct SDL_Surface {
++	Uint32 flags;				/**< Read-only */
++	SDL_PixelFormat *format;		/**< Read-only */
++	int w, h;				/**< Read-only */
++	Uint16 pitch;				/**< Read-only */
++	void *pixels;				/**< Read-write */
++	int offset;				/**< Private */
+ 
+-    /** Application data associated with the surface */
+-    void *userdata;             /**< Read-write */
++	/** Hardware-specific surface info */
++	struct private_hwdata *hwdata;
+ 
+-    /** information needed for surfaces requiring locks */
+-    int locked;                 /**< Read-only */
++	/** clipping information */
++	SDL_Rect clip_rect;			/**< Read-only */
++	Uint32 unused1;				/**< for binary compatibility */
+ 
+-    /** list of BlitMap that hold a reference to this surface */
+-    void *list_blitmap;         /**< Private */
++	/** Allow recursive locks */
++	Uint32 locked;				/**< Private */
+ 
+-    /** clipping information */
+-    SDL_Rect clip_rect;         /**< Read-only */
++	/** info for fast blit mapping to other surfaces */
++	struct SDL_BlitMap *map;		/**< Private */
+ 
+-    /** info for fast blit mapping to other surfaces */
+-    SDL_BlitMap *map;           /**< Private */
++	/** format version, bumped at every change to invalidate blit maps */
++	unsigned int format_version;		/**< Private */
+ 
+-    /** Reference count -- used when freeing surface */
+-    int refcount;               /**< Read-mostly */
++	/** Reference count -- used when freeing surface */
++	int refcount;				/**< Read-mostly */
+ } SDL_Surface;
+ 
+ /**
+diff --git a/src/dynapi/SDL_dynapi.h b/src/dynapi/SDL_dynapi.h
+index dc53e58b2..bbe4bdd2e 100644
+--- a/src/dynapi/SDL_dynapi.h
++++ b/src/dynapi/SDL_dynapi.h
+@@ -69,7 +69,7 @@
+ 
+ /* everyone else. This is where we turn on the API if nothing forced it off. */
+ #ifndef SDL_DYNAMIC_API
+-#define SDL_DYNAMIC_API 1
++#define SDL_DYNAMIC_API 0
+ #endif
+ 
+ #endif
+diff --git a/src/video/SDL_stretch.c b/src/video/SDL_stretch.c
+index bc7b4e551..f870d1bca 100644
+--- a/src/video/SDL_stretch.c
++++ b/src/video/SDL_stretch.c
+@@ -23,6 +23,19 @@
+ #include "SDL_video.h"
+ #include "SDL_blit.h"
+ #include "SDL_render.h"
++// #include <emmintrin.h>
++
++static const char *SDL_SetErrorInternal(const char *fmt, ...) {
++    return fmt;
++}
++
++static int SDL_LockSurfaceInternal(SDL_Surface * surface) {
++    return ++surface->locked;
++}
++
++static int SDL_UnlockSurfaceInternal(SDL_Surface * surface) {
++    return --surface->locked;
++}
+ 
+ static int SDL_LowerSoftStretchNearest(SDL_Surface *src, const SDL_Rect *srcrect, SDL_Surface *dst, const SDL_Rect *dstrect);
+ static int SDL_LowerSoftStretchLinear(SDL_Surface *src, const SDL_Rect *srcrect, SDL_Surface *dst, const SDL_Rect *dstrect);
+@@ -53,21 +66,21 @@ SDL_UpperSoftStretch(SDL_Surface * src, const SDL_Rect * srcrect,
+     SDL_Rect full_dst;
+ 
+     if (src->format->format != dst->format->format) {
+-        return SDL_SetError("Only works with same format surfaces");
++        return SDL_SetErrorInternal("Only works with same format surfaces");
+     }
+ 
+-    if (scaleMode != SDL_ScaleModeNearest) {
+-        if (src->format->BytesPerPixel != 4 || src->format->format == SDL_PIXELFORMAT_ARGB2101010) {
+-            return SDL_SetError("Wrong format");
+-        }
+-    }
++    // if (scaleMode != SDL_ScaleModeNearest) {
++    //     if (src->format->BytesPerPixel != 4 || src->format->format == SDL_PIXELFORMAT_ARGB2101010) {
++    //         return SDL_SetErrorInternal("Wrong format");
++    //     }
++    // }
+ 
+     /* Verify the blit rectangles */
+     if (srcrect) {
+         if ((srcrect->x < 0) || (srcrect->y < 0) ||
+             ((srcrect->x + srcrect->w) > src->w) ||
+             ((srcrect->y + srcrect->h) > src->h)) {
+-            return SDL_SetError("Invalid source blit rectangle");
++            return SDL_SetErrorInternal("Invalid source blit rectangle");
+         }
+     } else {
+         full_src.x = 0;
+@@ -80,7 +93,7 @@ SDL_UpperSoftStretch(SDL_Surface * src, const SDL_Rect * srcrect,
+         if ((dstrect->x < 0) || (dstrect->y < 0) ||
+             ((dstrect->x + dstrect->w) > dst->w) ||
+             ((dstrect->y + dstrect->h) > dst->h)) {
+-            return SDL_SetError("Invalid destination blit rectangle");
++            return SDL_SetErrorInternal("Invalid destination blit rectangle");
+         }
+     } else {
+         full_dst.x = 0;
+@@ -96,25 +109,25 @@ SDL_UpperSoftStretch(SDL_Surface * src, const SDL_Rect * srcrect,
+ 
+     if (srcrect->w > SDL_MAX_UINT16 || srcrect->h > SDL_MAX_UINT16 ||
+         dstrect->w > SDL_MAX_UINT16 || dstrect->h > SDL_MAX_UINT16) {
+-        return SDL_SetError("Size too large for scaling");
++        return SDL_SetErrorInternal("Size too large for scaling");
+     }
+ 
+     /* Lock the destination if it's in hardware */
+     dst_locked = 0;
+     if (SDL_MUSTLOCK(dst)) {
+-        if (SDL_LockSurface(dst) < 0) {
+-            return SDL_SetError("Unable to lock destination surface");
++        if (SDL_LockSurfaceInternal(dst) < 0) {
++            return SDL_SetErrorInternal("Unable to lock destination surface");
+         }
+         dst_locked = 1;
+     }
+     /* Lock the source if it's in hardware */
+     src_locked = 0;
+     if (SDL_MUSTLOCK(src)) {
+-        if (SDL_LockSurface(src) < 0) {
++        if (SDL_LockSurfaceInternal(src) < 0) {
+             if (dst_locked) {
+-                SDL_UnlockSurface(dst);
++                SDL_UnlockSurfaceInternal(dst);
+             }
+-            return SDL_SetError("Unable to lock source surface");
++            return SDL_SetErrorInternal("Unable to lock source surface");
+         }
+         src_locked = 1;
+     }
+@@ -127,10 +140,10 @@ SDL_UpperSoftStretch(SDL_Surface * src, const SDL_Rect * srcrect,
+ 
+     /* We need to unlock the surfaces if they're locked */
+     if (dst_locked) {
+-        SDL_UnlockSurface(dst);
++        SDL_UnlockSurfaceInternal(dst);
+     }
+     if (src_locked) {
+-        SDL_UnlockSurface(src);
++        SDL_UnlockSurfaceInternal(src);
+     }
+ 
+     return ret;
+@@ -380,8 +393,9 @@ hasSSE2()
+     if (val != -1) {
+         return val;
+     }
+-    val = SDL_HasSSE2();
+-    return val;
++    // val = SDL_HasSSE2();
++    // return val;
++    return 1;
+ }
+ 
+ static SDL_INLINE void
