@@ -7,7 +7,7 @@ import binascii
 pp = pprint.PrettyPrinter(width=120)
 
 def on_message(message, data):
-    logger.info('message type: %s' % message['type'])
+    # logger.info('message type: %s' % message['type'])
     t = message['type']
     if t == 'error':
         logger.warning(pp.pformat(message))
@@ -17,18 +17,36 @@ def on_message(message, data):
         logger.info('unknown message type: %s' % message.keys())
     
     if data:
+        # with open('out.bin', 'wb') as f:
+        #     f.write(data)
         logger.info(binascii.hexlify(data))
 
 def handle_cmd(cmd, api):
     cmd = cmd.split()
     if not cmd:
         return
-    elif cmd[0] == 'checkdisplay':
-        api.check_display()
-    elif cmd[0] == 'setdisplay':
-        api.set_display(int(cmd[1]))
-    elif cmd[0] == 'iconify':
-        api.iconify()
+    elif cmd[0] == 'settime':
+        api.set_time(float(cmd[1]))
+    elif cmd[0] == 'resethint':
+        api.reset_hint()
+    elif cmd[0] == 'getsets':
+        api.get_active_sets()
+    elif cmd[0] == 'click':
+        api.click(int(cmd[1]), int(cmd[2]))
+    elif cmd[0] == 'solve':
+        api.solve()
+    elif cmd[0] == 'solveall':
+        api.solve_all()
+    elif cmd[0] == 'stalk':
+        api.stalk()
+    elif cmd[0] == 'stalkinterval':
+        api.stalkinterval(int(cmd[1]), int(cmd[2]))
+    elif cmd[0] == 'unstalk':
+        api.unstalk()
+    elif cmd[0] == 'stat':
+        api.stat()
+    # elif cmd[0] == 'togglefullscreen':
+    #     api.toggle_fullscreen()
 
 def main(target_process):
     device = frida.get_local_device()
@@ -41,6 +59,9 @@ def main(target_process):
         logger.info('spawned app with pid %d' % pid)
         session = device.attach(pid)
 
+    # this directly calls the given entrypoint, not what we want
+    # device.inject_library_file(pid, "./custom-blitter/stretch.dll", "entry0", "test")
+    
     with open('mysterypi.js') as f:
         script = session.create_script(f.read())
 
@@ -60,7 +81,7 @@ def main(target_process):
     except Exception as e:
         logger.error('exception: %s' % e)
 
-    session.detach()
+    # session.detach()
     device.kill(pid)
 
 if __name__ == '__main__':
